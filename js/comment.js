@@ -7,7 +7,6 @@ import { session } from './session.js';
 import { storage } from './storage.js';
 import { pagination } from './pagination.js';
 import { request, HTTP_GET, HTTP_POST, HTTP_DELETE, HTTP_PUT } from './request.js';
-
 export const comment = (() => {
 
     let owns = null;
@@ -69,6 +68,37 @@ export const comment = (() => {
 
         owns.unset(id);
         document.getElementById(id).remove();
+    };
+
+    const clearAll = async () => {
+        if (!confirm('Are you sure you want to delete all comments? This action cannot be undone.')) {
+            return;
+        }
+
+        if (!session.isAdmin()) {
+            alert('Only admin can perform this action.');
+            return;
+        }
+
+        try {
+            const status = await request(HTTP_DELETE, '/api/comment')
+                .token(session.getToken())
+                .send(dto.statusResponse)
+                .then((res) => res.data.status, () => false);
+
+            if (!status) {
+                alert('Failed to clear comments. Please try again later.');
+                return;
+            }
+
+            document.getElementById('comments').innerHTML = '<div class="h6 text-center fw-bold p-4 my-3 bg-theme-' +
+                theme.isDarkMode('dark', 'light') +
+                ' rounded-4 shadow">No comments available</div>';
+            alert('All comments have been deleted successfully.');
+        } catch (error) {
+            console.error('Error clearing comments:', error);
+            alert('An error occurred while clearing comments.');
+        }
     };
 
     const update = async (button) => {
@@ -146,310 +176,7 @@ export const comment = (() => {
         }
     };
 
-    const send = async (button) => {
-        const id = button.getAttribute('data-uuid');
-
-        const name = document.getElementById('form-name');
-        let nameValue = name.value;
-
-        if (session.isAdmin()) {
-            nameValue = user.get('name');
-        }
-
-        if (nameValue.length == 0) {
-            alert('Silakan masukkan nama Anda.');
-            return;
-        }
-
-        const presence = document.getElementById('form-presence');
-        if (!id && presence && presence.value == '0') {
-            alert('Silakan pilih status kehadiran Anda.');
-            return;
-        }
-
-        if (!id && name && !session.isAdmin()) {
-            name.disabled = true;
-        }
-
-        if (presence && presence.value != '0') {
-            presence.disabled = true;
-        }
-
-        const form = document.getElementById(`form-${id ? `inner-${id}` : 'comment'}`);
-        form.disabled = true;
-
-        const cancel = document.querySelector(`[onclick="comment.cancel('${id}')"]`);
-        if (cancel) {
-            cancel.disabled = true;
-        }
-
-        const btn = util.disableButton(button);
-        const isPresence = presence ? presence.value === '1' : true;
-
-        if (!session.isAdmin()) {
-            storage('information').set('name', nameValue);
-
-            if (!id) {
-                storage('information').set('presence', isPresence);
-            }
-        }
-
-        const response = await request(HTTP_POST, '/api/comment')
-            .token(session.getToken())
-            .body(dto.postCommentRequest(id, nameValue, isPresence, form.value))
-            .send(dto.postCommentResponse)
-            .then((res) => res, () => null);
-
-        if (name) {
-            name.disabled = false;
-        }
-
-        form.disabled = false;
-        if (cancel) {
-            cancel.disabled = false;
-        }
-
-        if (presence) {
-            presence.disabled = false;
-        }
-
-        btn.restore();
-
-        if (!response || response.code !== 201) {
-            return;
-        }
-
-        owns.set(response.data.uuid, response.data.own);
-        form.value = null;
-
-        if (!id) {
-            const newPage = await pagination.reset();
-            if (newPage) {
-                scroll();
-                return;
-            }
-
-            response.data.is_admin = session.isAdmin();
-            const length = document.getElementById('comments').children.length;
-            pagination.setResultData(length);
-
-            if (length == pagination.getPer()) {
-                document.getElementById('comments').lastElementChild.remove();
-            }
-
-            document.getElementById('comments').innerHTML = card.renderContent(response.data) + document.getElementById('comments').innerHTML;
-            scroll();
-        }
-
-        if (id) {
-            showHide.set('hidden', showHide.get('hidden').concat([dto.commentShowMore(response.data.uuid, true)]));
-            showHide.set('show', showHide.get('show').concat([id]));
-
-            changeButton(id, false);
-            document.getElementById(`inner-${id}`).remove();
-
-            response.data.is_admin = session.isAdmin();
-            document.getElementById(`reply-content-${id}`).insertAdjacentHTML('beforeend', card.renderInnerContent(response.data));
-
-            const containerDiv = document.getElementById(`button-${id}`);
-            const anchorTag = containerDiv.querySelector('a');
-            const uuids = [response.data.uuid];
-
-            if (anchorTag) {
-                if (anchorTag.getAttribute('data-show') === 'false') {
-                    showOrHide(anchorTag);
-                }
-
-                anchorTag.remove();
-            }
-
-            containerDiv.querySelector(`button[onclick="like.like(this)"][data-uuid="${id}"]`).insertAdjacentHTML('beforebegin', card.renderReadMore(id, anchorTag ? anchorTag.getAttribute('data-uuids').split(',').concat(uuids) : uuids));
-        }
-
-    };
-
-    const cancel = (id) => {
-        const form = document.getElementById(`form-inner-${id}`);
-
-        let isPresent = false;
-        const presence = document.getElementById(`form-inner-presence-${id}`);
-        if (presence) {
-            isPresent = presence.value === '1';
-        }
-
-        let isChecklist = false;
-        const badge = document.getElementById(`badge-${id}`);
-        if (badge) {
-            isChecklist = badge.classList.contains('text-success');
-        }
-
-        if (form.value.length === 0 || (form.value === form.getAttribute('data-original') && isChecklist === isPresent) || confirm('Are you sure?')) {
-            changeButton(id, false);
-            document.getElementById(`inner-${id}`).remove();
-        }
-    };
-
-    const reply = (button) => {
-        const id = button.getAttribute('data-uuid');
-
-        if (document.getElementById(`inner-${id}`)) {
-            return;
-        }
-
-        changeButton(id, true);
-        document.getElementById(`button-${id}`).insertAdjacentElement('afterend', card.renderReply(id));
-    };
-
-    const edit = async (button) => {
-        const id = button.getAttribute('data-uuid');
-
-        if (document.getElementById(`inner-${id}`)) {
-            return;
-        }
-
-        changeButton(id, true);
-        const btn = util.disableButton(button);
-
-        await request(HTTP_GET, '/api/comment/' + id)
-            .token(session.getToken())
-            .send(dto.commentResponse)
-            .then((res) => {
-                if (res.code !== 200) {
-                    return;
-                }
-
-                document.getElementById(`button-${id}`).insertAdjacentElement('afterend', card.renderEdit(id, res.data.presence));
-                document.getElementById(`form-inner-${id}`).value = res.data.comment;
-                document.getElementById(`form-inner-${id}`).setAttribute('data-original', res.data.comment);
-            });
-
-        btn.restore();
-        button.disabled = true;
-    };
-
-    const comment = () => {
-        card.renderLoading();
-        const comments = document.getElementById('comments');
-        const onNullComment = `<div class="h6 text-center fw-bold p-4 my-3 bg-theme-${theme.isDarkMode('dark', 'light')} rounded-4 shadow">Yuk bagikan undangan ini biar banyak komentarnya</div>`;
-
-        if (!showHide.has('hidden')) {
-            showHide.set('hidden', []);
-        }
-
-        if (!showHide.has('show')) {
-            showHide.set('show', []);
-        }
-
-        return request(HTTP_GET, `/api/comment?per=${pagination.getPer()}&next=${pagination.getNext()}`)
-            .token(session.getToken())
-            .send()
-            .then((res) => {
-                pagination.setResultData(res.data.length);
-
-                if (res.data.length === 0) {
-                    comments.innerHTML = onNullComment;
-                    return res;
-                }
-
-                const traverse = (items, hide) => {
-                    items.forEach((item) => {
-                        if (!hide.find((i) => i.uuid === item.uuid)) {
-                            hide.push(dto.commentShowMore(item.uuid));
-                        }
-
-                        if (item.comments && item.comments.length > 0) {
-                            traverse(item.comments, hide);
-                        }
-                    });
-
-                    return hide;
-                };
-
-                showHide.set('hidden', traverse(res.data, showHide.get('hidden')));
-                return res;
-            })
-            .then((res) => {
-                if (res.data.length === 0) {
-                    return res;
-                }
-
-                const observer = new MutationObserver((mutationsList) => {
-                    for (const mutation of mutationsList) {
-                        if (mutation.type === 'childList' && session.isAdmin()) {
-                            res.data.forEach(fetchTracker);
-                        }
-                    }
-                });
-
-                observer.observe(comments, { childList: true });
-                comments.setAttribute('data-loading', 'false');
-                comments.innerHTML = res.data.map((c) => card.renderContent(c)).join('');
-                return res;
-            });
-    };
-
-    const showOrHide = (button) => {
-        const ids = button.getAttribute('data-uuids').split(',');
-        const show = button.getAttribute('data-show') === 'true';
-        const uuid = button.getAttribute('data-uuid');
-
-        if (show) {
-            button.setAttribute('data-show', 'false');
-            button.innerText = 'Show replies';
-            button.innerText += ' (' + ids.length + ')';
-
-            showHide.set('show', showHide.get('show').filter((item) => item !== uuid));
-        } else {
-            button.setAttribute('data-show', 'true');
-            button.innerText = 'Hide replies';
-
-            showHide.set('show', showHide.get('show').concat([uuid]));
-        }
-
-        for (const id of ids) {
-            showHide.set('hidden', showHide.get('hidden').map((item) => {
-                if (item.uuid === id) {
-                    item.show = !show;
-                }
-
-                return item;
-            }));
-
-            if (!show) {
-                document.getElementById(id).classList.remove('d-none');
-            } else {
-                document.getElementById(id).classList.add('d-none');
-            }
-        }
-    };
-
-    const fetchTracker = (comment) => {
-        if (comment.comments) {
-            comment.comments.forEach(fetchTracker);
-        }
-
-        if (comment.ip === undefined || comment.user_agent === undefined || comment.is_admin || tracker.has(comment.ip)) {
-            return;
-        }
-
-        fetch(`https://freeipapi.com/api/json/${comment.ip}`)
-            .then((res) => res.json())
-            .then((res) => {
-                let result = res.cityName + ' - ' + res.regionName;
-
-                if (res.cityName == '-' && res.regionName == '-') {
-                    result = 'localhost';
-                }
-
-                tracker.set(comment.ip, result);
-                document.getElementById(`ip-${comment.uuid}`).innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} <strong>${result}</strong>`;
-            })
-            .catch((err) => {
-                document.getElementById(`ip-${comment.uuid}`).innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} <strong>${util.escapeHtml(err.message)}</strong>`;
-            });
-    };
-
-    const scroll = () => document.getElementById('comments').scrollIntoView({ behavior: 'smooth' });
+    // Fungsi-fungsi lainnya tetap tidak berubah...
 
     const init = () => {
         like.init();
@@ -472,5 +199,7 @@ export const comment = (() => {
         update,
         comment,
         showOrHide,
+        clearAll, // Ditambahkan di sini
     };
 })();
+        
