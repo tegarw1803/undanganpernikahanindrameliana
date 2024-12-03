@@ -1,5 +1,4 @@
 export const storage = (table) => {
-
     const get = (key = null) => {
         const data = JSON.parse(localStorage.getItem(table));
         return key ? data[String(key)] : data;
@@ -37,3 +36,18 @@ export const storage = (table) => {
         clear,
     };
 };
+
+// Fungsi untuk menghapus semua komentar dengan konfirmasi
+const clearCommentsWithConfirmation = () => {
+    const commentsStorage = storage("comments"); // Gunakan "comments" sebagai tabel
+    if (confirm("Apakah Anda yakin ingin menghapus semua komentar?")) {
+        commentsStorage.clear(); // Menghapus semua data
+        console.log("Semua komentar berhasil dihapus.");
+    } else {
+        console.log("Penghapusan komentar dibatalkan.");
+    }
+};
+
+// Panggil fungsi ini pada event handler atau di mana pun dibutuhkan
+clearCommentsWithConfirmation();
+    
